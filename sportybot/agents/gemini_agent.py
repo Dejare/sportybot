@@ -1,222 +1,125 @@
 """
 gemini_agent.py  — All AI-powered analysis via Google Gemini
-Features:
-  • Analyse a booking code slip
-  • Scan live games → pick 5 safest bets
-  • Predict upcoming matches
-  • Decide which games to book from predictions
-  • Full conversational agent with memory
+Uses the new google-genai package
 """
 
 import json
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from config import GEMINI_API_KEY, GEMINI_MODEL
 
 log = logging.getLogger(__name__)
-
-genai.configure(api_key=GEMINI_API_KEY)
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  SHARED SYSTEM PROMPT
-# ─────────────────────────────────────────────────────────────────────────────
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """
-You are SportyBot AI — an elite professional sports betting analyst and agent.
-You work exclusively for the user who has hired you to maximize their chances.
+You are SportyBot AI — an elite professional sports betting analyst.
+You work exclusively for the user to maximize their chances.
 
-Your core capabilities:
-1. SLIP ANALYSIS — Review booking codes and evaluate each selection critically.
-2. LIVE SCANNER — Scan live games and identify the 5 safest high-value bets using:
-   - Current score momentum
-   - In-game odds movements (value bets)
-   - Statistical patterns (BTTS, over/under, clean sheets)
-   - Odds that imply >65% win probability
-3. PREDICTOR — Predict upcoming matches with confidence scores.
-4. BOOKER — From predictions, decide which games to combine into a betslip and generate a booking code.
-5. CONVERTER — Help users understand how to place their slip on other bookmakers.
-
-ANALYSIS FRAMEWORK (always apply):
-- Win probability = 1 / decimal_odds × 100
+ANALYSIS FRAMEWORK:
+- Win probability = 1 / decimal_odds x 100
 - SAFE BET: probability > 65%, odds < 1.60
-- VALUE BET: probability > 55%, odds > 1.80 (bookies underestimate)
-- AVOID: odds < 1.20 (too risky for parlays), odds > 4.0 (low probability)
-- For live games: score momentum, cards, corner dominance matter heavily
+- VALUE BET: probability > 55%, odds > 1.80
+- AVOID: odds < 1.20 or odds > 4.0
+- For live games: score momentum, cards, corners matter heavily
 
-OUTPUT FORMAT:
-- Always use emojis for readability (⚽ 🟢 🔴 📊 💰 ⚠️)
-- Rate confidence: 🔥 HIGH (>75%) | ✅ MEDIUM (60-75%) | ⚠️ LOW (<60%)
-- Always end with a risk disclaimer
-
-PERSONALITY:
-- Confident but honest about uncertainty
-- Data-driven, not emotional
-- You ALWAYS remind users betting carries risk
-- Never encourage reckless gambling
+OUTPUT: Use emojis, rate confidence as HIGH/MEDIUM/LOW, always add risk disclaimer.
+Never encourage reckless gambling.
 """
 
+_histories: dict = {}
 
-def _model():
-    return genai.GenerativeModel(
-        model_name=GEMINI_MODEL,
-        system_instruction=SYSTEM_PROMPT,
+
+def _ask(prompt: str) -> str:
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=2048,
+            temperature=0.7,
+        ),
     )
+    return response.text
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  1.  ANALYSE A RESOLVED SLIP
-# ─────────────────────────────────────────────────────────────────────────────
 
 def analyse_slip(slip: dict) -> str:
-    """Analyse a resolved SportyBet booking code slip."""
     games_text = "\n".join([
         f"{i+1}. {g['home']} vs {g['away']} | {g['league']}\n"
         f"   Market: {g['market']} | Pick: {g['selection']} | Odds: {g['odds']}\n"
         f"   Kick-off: {g['kick_off']}"
         for i, g in enumerate(slip["games"])
     ])
-
-    prompt = f"""
-A user shared their SportyBet booking code: {slip['code']}
-Total combined odds: {slip['total_odds']}
-
-Here are the selections in their slip:
+    return _ask(f"""
+Booking code: {slip['code']} | Total odds: {slip['total_odds']}
+Selections:
 {games_text}
 
-Please:
-1. Review each game individually — is the pick logical? What's the win probability?
-2. Flag any risky or questionable selections 🔴
-3. Highlight strong picks 🟢
-4. Give an overall slip quality score (1-10)
-5. Suggest any changes to improve the slip
-6. Tell them if this slip is worth placing as-is
-"""
-    response = _model().generate_content(prompt)
-    return response.text
+1. Review each game - is the pick logical? Win probability?
+2. Flag risky selections
+3. Highlight strong picks
+4. Overall slip quality score (1-10)
+5. Suggest improvements
+6. Worth placing as-is?
+""")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  2.  LIVE GAME SCANNER — PICK 5 SAFEST BETS
-# ─────────────────────────────────────────────────────────────────────────────
 
 def pick_live_safest(live_games: list, n: int = 5) -> str:
-    """From a list of live games, AI picks the n safest bets."""
     if not live_games:
-        return "⚠️ No live games found right now. Try again shortly."
-
+        return "No live games found right now. Try again shortly."
     games_text = "\n".join([
-        f"{i+1}. {g['home']} {g['score']} {g['away']} | {g['league']}\n"
-        f"   ⏱ {g['minute']}' | Odds → 1:{g['odds']['home']} X:{g['odds']['draw']} 2:{g['odds']['away']}"
-        for i, g in enumerate(live_games[:40])  # limit context
+        f"{i+1}. {g['home']} {g['score']} {g['away']} | {g['league']} | {g['minute']}' | Odds: 1:{g['odds']['home']} X:{g['odds']['draw']} 2:{g['odds']['away']}"
+        for i, g in enumerate(live_games[:40])
     ])
-
-    prompt = f"""
-Currently LIVE games right now:
+    return _ask(f"""
+LIVE games right now:
 {games_text}
 
-Your task:
-1. Analyse all live games above
-2. Select EXACTLY {n} safest bets with the HIGHEST WIN PROBABILITY
-3. For each pick, tell me:
-   a) The game and current score
-   b) Your recommended bet (e.g. "Back Home Win", "Over 0.5 goals", "BTTS Yes", etc.)
-   c) Your confidence level and reasoning
-   d) The current odds and implied probability
-4. Sort from SAFEST to least safe
-5. Then suggest: should these be combined into one accumulator, or placed as singles?
+Pick EXACTLY {n} safest bets. For each: game, recommended bet, confidence, reasoning, odds & implied probability.
+Sort safest first. Accumulator or singles?
+""")
 
-Be specific and data-driven. Consider score momentum — a team winning 2-0 at 70' is a different beast than 1-0 at 15'.
-"""
-    response = _model().generate_content(prompt)
-    return response.text
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  3.  PREDICTIONS FOR UPCOMING MATCHES
-# ─────────────────────────────────────────────────────────────────────────────
 
 def predict_upcoming(matches: list, user_request: str = "") -> str:
-    """AI predictions for upcoming matches."""
     if not matches:
-        return "⚠️ No upcoming matches found."
-
+        return "No upcoming matches found."
     games_text = "\n".join([
-        f"{i+1}. {m['home']} vs {m['away']} | {m['league']}\n"
-        f"   🕐 {m['kick_off']} | Odds → 1:{m['odds']['home']} X:{m['odds']['draw']} 2:{m['odds']['away']}"
+        f"{i+1}. {m['home']} vs {m['away']} | {m['league']} | {m['kick_off']} | Odds: 1:{m['odds']['home']} X:{m['odds']['draw']} 2:{m['odds']['away']}"
         for i, m in enumerate(matches[:20])
     ])
-
-    extra = f"\nUser's specific request: {user_request}" if user_request else ""
-
-    prompt = f"""
+    extra = f"\nUser request: {user_request}" if user_request else ""
+    return _ask(f"""
 Upcoming matches:
 {games_text}
 {extra}
 
-For each match, provide:
-1. Predicted outcome with confidence %
-2. Key reasoning (form, H2H if known, home advantage, odds value)
-3. Best market to bet (1X2, BTTS, Over/Under, Double Chance, etc.)
-4. Risk rating: 🔥 HIGH CONFIDENCE | ✅ MEDIUM | ⚠️ RISKY
+For each: predicted outcome with confidence %, reasoning, best market, risk rating.
+End with a section called RECOMMENDED BOOKING LIST with your top 5-8 picks.
+""")
 
-At the end, list your TOP PICKS (best 5-8) that you'd recommend for a combined booking code.
-Format the top picks section clearly with a heading "📋 RECOMMENDED BOOKING LIST" so I can auto-book them.
-"""
-    response = _model().generate_content(prompt)
-    return response.text
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  4.  DECIDE WHICH GAMES TO BOOK FROM PREDICTIONS
-# ─────────────────────────────────────────────────────────────────────────────
 
 def decide_booking(matches: list, prediction_text: str) -> list:
-    """
-    Given the AI's prediction text and available matches with event IDs,
-    extract which games should be booked and with what selection.
-    Returns structured list for booking.
-    """
     matches_json = json.dumps([{
-        "event_id": m["event_id"],
-        "home": m["home"],
-        "away": m["away"],
-        "odds": m["odds"],
+        "event_id": m["event_id"], "home": m["home"],
+        "away": m["away"], "odds": m["odds"],
     } for m in matches], indent=2)
 
-    prompt = f"""
-Based on this prediction analysis:
----
+    response = _ask(f"""
+Prediction analysis:
 {prediction_text}
----
 
-And these available matches with their event IDs:
+Available matches:
 {matches_json}
 
-Extract the recommended booking selections and return ONLY a valid JSON array like this:
-[
-  {{
-    "event_id": "...",
-    "home": "...",
-    "away": "...",
-    "selection": "1",   // "1"=home, "X"=draw, "2"=away, "Over 2.5", "BTTS Yes", etc.
-    "market": "1X2",    // or "Goals Over/Under", "Both Teams to Score", etc.
-    "odds": 1.85,
-    "confidence": "HIGH"
-  }}
-]
-
-Return ONLY the JSON array. No explanation. No markdown. Just the raw JSON.
-"""
-    response = _model().generate_content(prompt)
-    text = response.text.strip()
-
-    # Clean up any accidental markdown
-    if text.startswith("```"):
+Return ONLY a raw JSON array, no markdown, no explanation:
+[{{"event_id":"...","home":"...","away":"...","selection":"1","market":"1X2","odds":1.85,"confidence":"HIGH"}}]
+""")
+    text = response.strip()
+    if "```" in text:
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    text = text.strip().rstrip("```")
-
+    text = text.strip().rstrip("`")
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -224,67 +127,39 @@ Return ONLY the JSON array. No explanation. No markdown. Just the raw JSON.
         return []
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  5.  CONVERSATIONAL AGENT  (multi-turn chat)
-# ─────────────────────────────────────────────────────────────────────────────
+def chat(user_id: int, message: str, context: str = "") -> str:
+    if user_id not in _histories:
+        _histories[user_id] = []
+    full_message = f"{context}\n\n{message}" if context else message
+    _histories[user_id].append({"role": "user", "parts": [{"text": full_message}]})
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=_histories[user_id],
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=2048,
+            temperature=0.7,
+        ),
+    )
+    reply = response.text
+    _histories[user_id].append({"role": "model", "parts": [{"text": reply}]})
+    return reply
 
-# Store per-user chat sessions
-_sessions: dict[int, any] = {}
-
-def get_chat_session(user_id: int):
-    if user_id not in _sessions:
-        _sessions[user_id] = _model().start_chat(history=[])
-    return _sessions[user_id]
 
 def clear_session(user_id: int):
-    _sessions.pop(user_id, None)
+    _histories.pop(user_id, None)
 
-def chat(user_id: int, message: str, context: str = "") -> str:
-    """
-    Send a message to the conversational agent with optional context injection.
-    context: extra data to prepend (e.g. live games, slip data, etc.)
-    """
-    session = get_chat_session(user_id)
-    full_message = f"{context}\n\n{message}" if context else message
-    response = session.send_message(full_message)
-    return response.text
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  6.  SLIP IMPROVEMENT SUGGESTION
-# ─────────────────────────────────────────────────────────────────────────────
 
 def suggest_slip_improvements(slip: dict, live_games: list, upcoming: list) -> str:
-    """Suggest how to improve or replace a given slip."""
-    slip_summary = "\n".join([
-        f"- {g['home']} vs {g['away']}: {g['selection']} @ {g['odds']}"
-        for g in slip["games"]
-    ])
-    live_summary = "\n".join([
-        f"- {g['home']} {g['score']} {g['away']} ({g['minute']}')"
-        for g in live_games[:10]
-    ]) or "None available"
-    upcoming_summary = "\n".join([
-        f"- {m['home']} vs {m['away']} @ {m['kick_off']}"
-        for m in upcoming[:10]
-    ]) or "None available"
-
-    prompt = f"""
-The user has this existing slip (code: {slip['code']}):
+    slip_summary = "\n".join([f"- {g['home']} vs {g['away']}: {g['selection']} @ {g['odds']}" for g in slip["games"]])
+    live_summary = "\n".join([f"- {g['home']} {g['score']} {g['away']} ({g['minute']}')" for g in live_games[:10]]) or "None"
+    upcoming_summary = "\n".join([f"- {m['home']} vs {m['away']} @ {m['kick_off']}" for m in upcoming[:10]]) or "None"
+    return _ask(f"""
+Existing slip ({slip['code']}), total odds {slip['total_odds']}:
 {slip_summary}
-Total odds: {slip['total_odds']}
 
-Available live games right now:
-{live_summary}
+Live games: {live_summary}
+Upcoming: {upcoming_summary}
 
-Upcoming matches:
-{upcoming_summary}
-
-Suggest:
-1. Which selections in their existing slip are weak — and what to replace them with
-2. Any live or upcoming games that are better alternatives
-3. An optimised version of this slip with better risk/reward
-4. The expected combined odds after your improvements
-"""
-    response = _model().generate_content(prompt)
-    return response.text
+Suggest: weak selections to replace, better alternatives, optimised slip, expected new odds.
+""")
