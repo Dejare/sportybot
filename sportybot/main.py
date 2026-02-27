@@ -438,8 +438,8 @@ def handle_message(message):
 def main():
     if not config.TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_TOKEN is not set in .env")
-    if not config.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not set in .env")
+    if not config.OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY is not set in .env")
 
     log.info("🤖 SportyBot is running...")
     bot.infinity_polling(timeout=60, long_polling_timeout=30)
