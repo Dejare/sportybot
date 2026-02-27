@@ -391,8 +391,11 @@ def handle_message(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    # Auto-detect booking codes
-    if re.match(r"^[A-Z0-9]{4,10}$", text.upper()) and text.isalnum():
+    # Auto-detect booking codes (must be 5-10 chars, alphanumeric, contain at least one digit)
+    upper = text.upper()
+    if (re.match(r"^[A-Z0-9]{5,10}$", upper)
+            and text.isalnum()
+            and any(c.isdigit() for c in text)):
         message.text = f"/code {text}"
         cmd_code(message)
         return

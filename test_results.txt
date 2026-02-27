@@ -1,0 +1,21 @@
+404 | order/share/booking-code | NOT JSON | body=
+200 | biz=19000 | orders/share/booking-code | data=None | msg=The code is invalid.
+404 | betOrder/share-bookingCode | NOT JSON | body=
+404 | betOrder/share-shareCode | NOT JSON | body=
+404 | biz=19001 | liveEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | sportEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | queryInplayEvents | data=dict keys=[] | msg=Resource not found
+422 | biz=19000 | liveOrPrematchEvents | data=dict keys=[] | msg=Invalid
+403 | biz=19003 | pcEvents | data=dict keys=[] | msg=Forbidden
+404 | biz=19001 | prematchEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | topEvents | data=dict keys=[] | msg=Resource not found
+403 | biz=19003 | hotEvents | data=dict keys=[] | msg=Forbidden
+404 | biz=19001 | popularEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | pcInplayEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | popularSportEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | queryUpcomingEvents | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | sportsMenu | data=dict keys=[] | msg=Resource not found
+200 | biz=10000 | liveOrPrematch-SR | data=list[5] | msg=0#0
+403 | biz=19003 | pcEvents-LiveNow | data=dict keys=[] | msg=Forbidden
+404 | biz=19001 | topEvents-SR | data=dict keys=[] | msg=Resource not found
+404 | biz=19001 | searchEvents | data=dict keys=[] | msg=Resource not found 

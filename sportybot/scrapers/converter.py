@@ -4,6 +4,7 @@ Supported targets: bet9ja | betway | betking | 1xbet | parimatch | msport
 """
 
 import logging
+from typing import Optional
 import requests
 from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -74,7 +75,7 @@ def _headers(referer: str = "") -> dict:
 #  BET9JA
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _search_bet9ja(home: str, away: str) -> dict | None:
+def _search_bet9ja(home: str, away: str) -> Optional[dict]:
     try:
         r = requests.get(
             BOOKIE_CONFIGS["bet9ja"]["search_url"],
@@ -110,7 +111,7 @@ def _book_bet9ja(selections: list) -> str:
 #  BETKING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _search_betking(home: str, away: str) -> dict | None:
+def _search_betking(home: str, away: str) -> Optional[dict]:
     try:
         r = requests.get(
             BOOKIE_CONFIGS["betking"]["search_url"],
@@ -139,25 +140,25 @@ def _book_betking(selections: list) -> str:
         log.warning(f"BetKing booking error: {e}")
         return "UNAVAILABLE"
 
- 
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  BETWAY
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _search_betway(home: str, away: str) -> dict | None:
+def _search_betway(home: str, away: str) -> Optional[dict]:
     try:
         r = requests.get(
             BOOKIE_CONFIGS["betway"]["search_url"],
             params={"search": f"{home} {away}"},
-            headers=_headers("https://sports.betway.com.ng/"), 
-            timeout=10, 
+            headers=_headers("https://sports.betway.com.ng/"),
+            timeout=10,
         )
         events = r.json().get("events", [])
         for ev in events:
             if home.lower() in (ev.get("homeTeam") or "").lower():
                 return ev
     except Exception as e:
-        log.warning(f"Betway search error: {e}") 
+        log.warning(f"Betway search error: {e}")
     return None
 
 

@@ -28,11 +28,13 @@ def format_live_games(games: list) -> str:
         return "⚽ No live games found right now."
     lines = [f"🔴 *{len(games)} Live Games Right Now:*\n"]
     for i, g in enumerate(games[:20], 1):
-        home_win = f"{round(1/g['odds']['home']*100)}%" if g['odds']['home'] > 0 else "-"
+        home_odds = g['odds'].get('home', 0)
+        draw_odds = g['odds'].get('draw', 0)
+        away_odds = g['odds'].get('away', 0)
         lines.append(
-            f"*{i}.* {g['home']} `{g['score']}` {g['away']}\n"
-            f"   ⏱ `{g['minute']}'` | {g['league']}\n"
-            f"   💰 1:`{g['odds']['home']}` X:`{g['odds']['draw']}` 2:`{g['odds']['away']}`\n"
+            f"*{i}.* {g['home']} `{g.get('score', '0-0')}` {g['away']}\n"
+            f"   ⏱ `{g.get('minute', '?')}'` | {g.get('league', '')}\n"
+            f"   💰 1:`{home_odds}` X:`{draw_odds}` 2:`{away_odds}`\n"
         )
     return "\n".join(lines)
 
