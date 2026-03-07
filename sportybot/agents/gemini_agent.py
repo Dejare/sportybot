@@ -1,20 +1,18 @@
 """
-gemini_agent.py  — All AI-powered analysis via OpenRouter (DeepSeek)
-Uses the OpenAI-compatible API provided by OpenRouter
+gemini_agent.py  — All AI-powered analysis via Google Gemini API (FREE tier)
+Uses the google-genai SDK with Gemini 2.5 Flash for strong reasoning.
 """
 
 import json
 import logging
 import time
-from openai import OpenAI
-from config import OPENROUTER_API_KEY, AI_MODEL
+from google import genai
+from google.genai import types
+from config import GEMINI_API_KEY, AI_MODEL
 
 log = logging.getLogger(__name__)
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """
 You are SportyBot AI — an elite professional sports betting analyst.
@@ -31,31 +29,34 @@ OUTPUT: Use emojis, rate confidence as HIGH/MEDIUM/LOW, always add risk disclaim
 Never encourage reckless gambling.
 """
 
-_histories: dict = {}
+# Chat sessions per user (stores google-genai Chat objects)
+_chats: dict = {}
 
 
 def _ask(prompt: str) -> str:
+    """Single-shot prompt with system instruction and retry logic."""
     for attempt in range(3):
         try:
-            response = client.chat.completions.create(
+            response = client.models.generate_content(
                 model=AI_MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=2048,
-                temperature=0.7,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    max_output_tokens=2048,
+                    temperature=0.7,
+                ),
             )
-            return response.choices[0].message.content
+            return response.text
         except Exception as e:
             err = str(e)
-            if "429" in err or "rate" in err.lower():
+            if "429" in err or "rate" in err.lower() or "quota" in err.lower() or "RESOURCE_EXHAUSTED" in err:
                 wait = 2 ** attempt * 5  # 5s, 10s, 20s
-                log.warning(f"Rate limited (429), retrying in {wait}s (attempt {attempt+1}/3)")
+                log.warning(f"Rate limited, retrying in {wait}s (attempt {attempt+1}/3)")
                 time.sleep(wait)
             else:
+                log.error(f"AI API error: {type(e).__name__}: {e}")
                 raise RuntimeError(f"AI API error: {type(e).__name__}") from e
-    raise RuntimeError("⚠️ Error 429: Rate limit exceeded. Please wait a minute and try again.")
+    raise RuntimeError("⚠️ Rate limit exceeded. Please wait a minute and try again.")
 
 
 def analyse_slip(slip: dict) -> str:
@@ -143,34 +144,39 @@ Return ONLY a raw JSON array, no markdown, no explanation:
 
 
 def chat(user_id: int, message: str, context: str = "") -> str:
-    if user_id not in _histories:
-        _histories[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """Multi-turn chat using Gemini's built-in chat sessions."""
     full_message = f"{context}\n\n{message}" if context else message
-    _histories[user_id].append({"role": "user", "content": full_message})
+
     for attempt in range(3):
         try:
-            response = client.chat.completions.create(
-                model=AI_MODEL,
-                messages=_histories[user_id],
-                max_tokens=2048,
-                temperature=0.7,
-            )
-            reply = response.choices[0].message.content
-            _histories[user_id].append({"role": "assistant", "content": reply})
-            return reply
+            # Create or reuse a chat session per user
+            if user_id not in _chats:
+                _chats[user_id] = client.chats.create(
+                    model=AI_MODEL,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        max_output_tokens=2048,
+                        temperature=0.7,
+                    ),
+                )
+
+            response = _chats[user_id].send_message(full_message)
+            return response.text
+
         except Exception as e:
             err = str(e)
-            if "429" in err or "rate" in err.lower():
+            if "429" in err or "rate" in err.lower() or "quota" in err.lower() or "RESOURCE_EXHAUSTED" in err:
                 wait = 2 ** attempt * 5
-                log.warning(f"Rate limited (429), retrying in {wait}s (attempt {attempt+1}/3)")
+                log.warning(f"Rate limited, retrying in {wait}s (attempt {attempt+1}/3)")
                 time.sleep(wait)
             else:
+                log.error(f"AI API error: {type(e).__name__}: {e}")
                 raise RuntimeError(f"AI API error: {type(e).__name__}") from e
-    raise RuntimeError("⚠️ Error 429: Rate limit exceeded. Please wait a minute and try again.")
+    raise RuntimeError("⚠️ Rate limit exceeded. Please wait a minute and try again.")
 
 
 def clear_session(user_id: int):
-    _histories.pop(user_id, None)
+    _chats.pop(user_id, None)
 
 
 def suggest_slip_improvements(slip: dict, live_games: list, upcoming: list) -> str:

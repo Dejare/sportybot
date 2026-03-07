@@ -6,9 +6,9 @@ load_dotenv()
 # Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
-# OpenRouter (DeepSeek)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-AI_MODEL = os.getenv("AI_MODEL", "deepseek/deepseek-chat-v3-0324")
+# Google Gemini API (FREE tier)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "gemini-2.5-flash")
 
 # SportyBet
 SPORTYBET_COUNTRY  = os.getenv("SPORTYBET_COUNTRY", "ng").lower()
